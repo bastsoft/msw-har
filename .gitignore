@@ -1,0 +1,7 @@
+*.har
+.DS_Store
+mocks/*
+source/*
+AGENTS.md
+node_modules
+.vscode
