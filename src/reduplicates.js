@@ -407,7 +407,10 @@ const main = async () => {
         if (statelessCounts[sKey] === 1 && entry.state) {
             const newState = {};
             Object.entries(entry.state).forEach(([key, value]) => {
-                if (key.startsWith("set_")) {
+                // set_* поля оставляем всегда;
+                // не-set поля с null оставляем — они используются в
+                // nullCheckMethods (например getStatus при status === null)
+                if (key.startsWith("set_") || value === null) {
                     newState[key] = value;
                 }
             });
