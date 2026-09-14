@@ -381,6 +381,47 @@ const main = async () => {
         entry.order = index + 1;
     });
 
+    // Финальная очистка state: если запись уникальна по ключу без учёта
+    // order, currentIndex и state, то условие по state в handler не нужно —
+    // удаляем не-set поля из state (например "status": "passport"),
+    // оставляя только set_* поля. Если set_* полей нет — удаляем state entirely.
+    const statelessKey = (entry) => {
+        const copy = {};
+        Object.keys(entry).forEach((key) => {
+            if (key !== "order" && key !== "currentIndex" && key !== "state") {
+                copy[key] = entry[key];
+            }
+        });
+        return JSON.stringify(copy);
+    };
+
+    const statelessCounts = {};
+    dedupedCallingOrder.forEach((entry) => {
+        const sKey = statelessKey(entry);
+        statelessCounts[sKey] = (statelessCounts[sKey] || 0) + 1;
+    });
+
+    let cleanedState = 0;
+    dedupedCallingOrder.forEach((entry) => {
+        const sKey = statelessKey(entry);
+        if (statelessCounts[sKey] === 1 && entry.state) {
+            const newState = {};
+            Object.entries(entry.state).forEach(([key, value]) => {
+                if (key.startsWith("set_")) {
+                    newState[key] = value;
+                }
+            });
+            if (Object.keys(newState).length < Object.keys(entry.state).length) {
+                cleanedState += 1;
+            }
+            if (Object.keys(newState).length > 0) {
+                entry.state = newState;
+            } else {
+                delete entry.state;
+            }
+        }
+    });
+
     // Запись calling-order.json
     writeJsonFile(callingOrderFile, dedupedCallingOrder);
 
@@ -397,6 +438,7 @@ const main = async () => {
     console.log(`перенаправлено пар: ${removedFiles}`);
     console.log(`удалено дубликатов записей: ${removedEntries}`);
     console.log(`удалено записей без set_*: ${removedNoSet}`);
+    console.log(`очищено state (не-set поля): ${cleanedState}`);
 };
 
 main().catch((error) => {
