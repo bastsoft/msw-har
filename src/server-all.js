@@ -24,6 +24,19 @@ if (folders.length === 0) {
     process.exit(1);
 }
 
+/**
+ * Форматирование пути MSW-хендлера в строку для вывода.
+ *
+ * @param {string|RegExp} mswPath — путь из handler.info.path
+ * @returns {string}
+ */
+const formatHandlerPath = (mswPath) => {
+    if (mswPath instanceof RegExp) {
+        return mswPath.source;
+    }
+    return mswPath;
+};
+
 const app = express();
 
 app.use(express.json());
@@ -54,9 +67,19 @@ app.use((req, res, next) => {
 // Загружаем handlers.js из каждой папки и монтируем под префиксом /<folder>.
 // Express обрезает префикс из req.url перед передачей в middleware,
 // поэтому хендлеры вида http.post("/rpc/v1") работают без изменений.
+const folderRoutes = {};
+
 for (const folder of folders) {
     const handlersPath = pathToFileURL(resolve(MOCKS_DIR, folder, 'handlers.js')).href;
     const { handlers } = await import(handlersPath);
+
+    // Собираем реальные пути из MSW-хендлеров для вывода при старте
+    folderRoutes[folder] = handlers.map((handler) => {
+        const method = handler.info?.method ?? 'ALL';
+        const mswPath = handler.info?.path ?? '*';
+        return `${method} ${formatHandlerPath(mswPath)}`;
+    });
+
     app.use(`/${folder}`, createMiddleware(...handlers));
 }
 
@@ -69,8 +92,18 @@ const server = app.listen(PORT, () => {
     console.log(`Mock-сервер запущен на http://localhost:${PORT}`);
     console.log('Доступные моки:\n');
     folders.forEach((folder) => {
-        console.log(`  http://localhost:${PORT}/${folder}/rpc/v1`);
-        console.log(`  http://localhost:${PORT}/${folder}/rpc/test`);
+        const routes = folderRoutes[folder] ?? [];
+        if (routes.length === 0) {
+            console.log(`  /${folder}  (хендлеры не найдены)`);
+            return;
+        }
+
+        routes.forEach((route) => {
+            const [method, ...pathParts] = route.split(' ');
+            const mswPath = pathParts.join(' ');
+            console.log(`  ${method.padEnd(6)} http://localhost:${PORT}/${folder}${mswPath}`);
+        });
+        console.log('');
     });
 });
 
