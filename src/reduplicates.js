@@ -190,6 +190,10 @@ const main = async () => {
     }
 
     let rpcMethod = false;
+    // Map: stateName → Set<rpcMethod> из nullCheckMethods конфига.
+    // Для этих методов null-значение в state считается легитимным и
+    // сохраняется в условии if в handlers.js.
+    const nullCheckByState = {};
     if (configPath) {
         if (!fs.existsSync(configPath)) {
             console.error(`Ошибка: файл конфигурации не найден: ${configPath}`);
@@ -197,6 +201,13 @@ const main = async () => {
         }
         const config = await loadConfig(configPath, typeName);
         rpcMethod = Boolean(config.rpcMethod);
+        if (Array.isArray(config.state)) {
+            config.state.forEach((stateConfig) => {
+                if (stateConfig.nullCheckMethods) {
+                    nullCheckByState[stateConfig.name] = new Set(stateConfig.nullCheckMethods);
+                }
+            });
+        }
     }
 
     const callingOrderFile = path.join(mocksDir, "calling-order.json");
@@ -408,10 +419,19 @@ const main = async () => {
             const newState = {};
             Object.entries(entry.state).forEach(([key, value]) => {
                 // set_* поля оставляем всегда;
-                // не-set поля с null оставляем — они используются в
-                // nullCheckMethods (например getStatus при status === null)
-                if (key.startsWith("set_") || value === null) {
+                // не-set поля с null оставляем только если rpcMethod записи
+                // входит в nullCheckMethods для этого state-поля из конфига
+                // (например getStatus при status === null).
+                // Если nullCheckByState не задан — сохраняем все null-поля
+                // (обратная совместимость).
+                if (key.startsWith("set_")) {
                     newState[key] = value;
+                } else if (value === null) {
+                    const allowedMethods = nullCheckByState[key];
+                    const isAllowed = !allowedMethods || (entry.rpcMethod && allowedMethods.has(entry.rpcMethod));
+                    if (isAllowed) {
+                        newState[key] = value;
+                    }
                 }
             });
             if (Object.keys(newState).length < Object.keys(entry.state).length) {
