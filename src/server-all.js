@@ -4,23 +4,52 @@ import { pathToFileURL } from 'node:url';
 import { readdirSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const MOCKS_DIR = process.argv[2]
-    ? resolve(process.cwd(), process.argv[2])
-    : resolve(process.cwd(), 'mocks');
+// mockDir из конфига может быть массивом — index.js прокидывает все папки.
+// Моки собираются из всех папок; при совпадении имён приоритет у первой.
+const MOCK_DIRS = process.argv.slice(2).length > 0
+    ? process.argv.slice(2).map((dir) => resolve(dir))
+    : [resolve(process.cwd(), 'mocks')];
 const PORT = 3002;
 
-// Сканируем папку моков и собираем все подпапки
-if (!existsSync(MOCKS_DIR)) {
-    console.error(`Папка моков не найдена: ${MOCKS_DIR}\nСначала сгенерируйте моки через "node ./msw-har/index.js -gen".`);
+const missingDirs = [];
+const existingDirs = [];
+MOCK_DIRS.forEach((dir) => {
+    if (existsSync(dir)) {
+        existingDirs.push(dir);
+    } else {
+        missingDirs.push(dir);
+    }
+});
+
+if (existingDirs.length === 0) {
+    console.error(`Папки моков не найдены: ${MOCK_DIRS.join(', ')}\nСначала сгенерируйте моки через "node ./msw-har/index.js -gen".`);
     process.exit(1);
 }
 
-const folders = readdirSync(MOCKS_DIR, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name);
+missingDirs.forEach((dir) => {
+    console.warn(`Папка моков не найдена, пропускаем: ${dir}`);
+});
+
+// Сканируем каждую существующую папку моков и собираем подпапки-моки
+const mockDirByFolder = {};
+const folders = [];
+
+existingDirs.forEach((dir) => {
+    readdirSync(dir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .forEach((folderName) => {
+            if (mockDirByFolder[folderName]) {
+                console.warn(`Мок "${folderName}" из ${dir} пропущен: такой мок уже есть в ${mockDirByFolder[folderName]}`);
+                return;
+            }
+            mockDirByFolder[folderName] = dir;
+            folders.push(folderName);
+        });
+});
 
 if (folders.length === 0) {
-    console.error(`Папка моков пуста: ${MOCKS_DIR}\nСначала сгенерируйте моки через "node ./msw-har/index.js -gen".`);
+    console.error(`Папки моков пусты: ${MOCK_DIRS.join(', ')}\nСначала сгенерируйте моки через "node ./msw-har/index.js -gen".`);
     process.exit(1);
 }
 
@@ -70,15 +99,17 @@ app.use((req, res, next) => {
 const folderRoutes = {};
 
 for (const folder of folders) {
-    const handlersPath = pathToFileURL(resolve(MOCKS_DIR, folder, 'handlers.js')).href;
+    const handlersPath = pathToFileURL(resolve(mockDirByFolder[folder], folder, 'handlers.js')).href;
     const { handlers } = await import(handlersPath);
 
-    // Собираем реальные пути из MSW-хендлеров для вывода при старте
-    folderRoutes[folder] = handlers.map((handler) => {
+    // Собираем реальные пути из MSW-хендлеров для вывода при старте.
+    // Set схлопывает дубликаты маршрутов: переопределяющий хендлер (в начале
+    // массива) и переопределяемый имеют одинаковый путь — печатаем один раз.
+    folderRoutes[folder] = [...new Set(handlers.map((handler) => {
         const method = handler.info?.method ?? 'ALL';
         const mswPath = handler.info?.path ?? '*';
         return `${method} ${formatHandlerPath(mswPath)}`;
-    });
+    }))];
 
     app.use(`/${folder}`, createMiddleware(...handlers));
 }

@@ -1,7 +1,9 @@
 *.har
 .DS_Store
 mocks/*
+mock-data/*
 source/*
 AGENTS.md
 node_modules
 .vscode
+msw-har.config.js
