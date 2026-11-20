@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline/promises";
+import { normalizeMockDirs } from "./src/mock-dirs.js";
 
 const ROOT = process.cwd();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -67,7 +68,11 @@ const detectTypeName = (harName, typeSection) => {
 
 const config = await loadConfig();
 const HAR_DIR = config.harDir || path.resolve(ROOT, "source");
-const MOCKS_DIR = config.mockDir || path.resolve(ROOT, "mocks");
+
+// mockDir может быть строкой или массивом. Генерация моков идёт в первую
+// папку, сервер (server-all.js) читает моки из всех папок.
+const MOCK_DIRS = normalizeMockDirs(config.mockDir, ROOT);
+const MOCKS_DIR = MOCK_DIRS[0];
 const SOURCE_DIR = HAR_DIR;
 
 /**
@@ -120,7 +125,7 @@ const runFromHar = (harArg) => {
     runNode([path.join(SRC_DIR, "unhar-rpc.js"), harPath, ...confArgs]);
     runNode([path.join(SRC_DIR, "reduplicates.js"), mocksDir, ...confArgs]);
     runNode([path.join(SRC_DIR, "create-handlers-msw.js"), mocksDir, ...confArgs]);
-    runNode([path.join(SRC_DIR, "server-all.js"), MOCKS_DIR]);
+    runNode([path.join(SRC_DIR, "server-all.js"), ...MOCK_DIRS]);
 };
 
 /**
@@ -176,7 +181,7 @@ const runGen = async () => {
  * См. src/server-all.js.
  */
 const runAll = () => {
-    runNode([path.join(SRC_DIR, "server-all.js"), MOCKS_DIR]);
+    runNode([path.join(SRC_DIR, "server-all.js"), ...MOCK_DIRS]);
 };
 
 /**
@@ -199,14 +204,16 @@ const printHelp = () => {
         "               Запускается полный пайплайн генерации, затем поднимается server-all.",
         "",
         "Без аргументов:",
-        "  Запускает единый сервер со ВСЕМИ моками из mockDir одновременно.",
+        "  Запускает единый сервер со ВСЕМИ моками из всех папок mockDir одновременно.",
         "  Каждая папка доступна под префиксом /<имя-папки>/, например:",
         "    http://localhost:3002/jrpc_newbie-ea_golden-case/rpc/v1",
         "",
         "Конфигурация:",
         "  Читается из msw-har.config.js (в корне проекта).",
         "  harDir  — папка с HAR-файлами (по умолчанию ./source).",
-        "  mockDir — папка для сгенерированных моков (по умолчанию ./mocks).",
+        "  mockDir — папка(и) для сгенерированных моков (по умолчанию ./mocks).",
+        "            Можно указать массив папок: при генерации используется первая",
+        "            папка, а сервер читает сгенерированные моки из всех.",
         "  type    — секция с конфигами по имени типа.",
         "            type.default используется, если тип не найден по префиксу.",
         "",

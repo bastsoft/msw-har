@@ -276,7 +276,7 @@ const buildHandler = (entries, config, mocksDir) => {
     });
 
     const bodyParseLine = needsBody
-        ? `        const body = await request.json();\n`
+        ? `        const body = await request.clone().json();\n`
         : "";
 
     const handlerBody = `    ${httpMethod}(${JSON.stringify(routePath)}, async (${bodyParam}) => {
@@ -348,7 +348,7 @@ const main = async () => {
     const header = sessionCookie
         ? `import { http, HttpResponse } from "msw"
 
-const initialState = ${stateInit};
+export const initialState = ${stateInit};
 
 const sessions = new Map();
 
@@ -366,7 +366,7 @@ const respond = (json, sessionId) => HttpResponse.json(json, {
 `
         : `import { http, HttpResponse } from "msw"
 
-const state = ${stateInit};
+export const state = ${stateInit};
 `;
 
     const output = `${header}
