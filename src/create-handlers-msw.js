@@ -352,7 +352,7 @@ export const initialState = ${stateInit};
 
 const sessions = new Map();
 
-const getSession = (request) => {
+export const getSession = (request) => {
     const sessionId = request.headers.get("x-mock-session") || crypto.randomUUID();
     if (!sessions.has(sessionId)) {
         sessions.set(sessionId, { ...initialState });
@@ -360,7 +360,7 @@ const getSession = (request) => {
     return { sessionId, state: sessions.get(sessionId) };
 };
 
-const respond = (json, sessionId) => HttpResponse.json(json, {
+export const respond = (json, sessionId) => HttpResponse.json(json, {
     headers: { "x-mock-session": sessionId }
 });
 `
