@@ -136,11 +136,12 @@ const buildStateInit = (config) => {
             // Для rpcMethodTrigger initial — само начальное значение (например false)
             value = entry.initial !== undefined ? entry.initial : false;
         } else {
-            // Для path — initial это boolean-флаг, value содержит начальное значение
+            // Для path — initial это boolean-флаг, value содержит начальное значение.
+            // Если initial не задан — начальное значение берётся из defaultValue (или null).
             if (entry.initial) {
                 value = entry.value !== undefined ? entry.value : null;
             } else {
-                value = null;
+                value = entry.defaultValue !== undefined ? entry.defaultValue : null;
             }
         }
 
