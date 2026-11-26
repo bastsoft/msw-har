@@ -30,21 +30,38 @@ missingDirs.forEach((dir) => {
     console.warn(`Папка моков не найдена, пропускаем: ${dir}`);
 });
 
-// Сканируем каждую существующую папку моков и собираем подпапки-моки
+// Сканируем каждую существующую папку моков и собираем моки двух видов:
+//  1) подпапка с handlers.js — сгенерированный из HAR мок;
+//  2) одиночный js-файл в корне mockDir (например mock-data/du-fatality.js) —
+//     обрабатывается как обычный handlers.js, имя мока = имя файла без .js.
 const mockDirByFolder = {};
+const mockPathByFolder = {};
 const folders = [];
 
 existingDirs.forEach((dir) => {
+    const addMockFolder = (folderName, mockPath, mockDir) => {
+        if (mockDirByFolder[folderName]) {
+            console.warn(`Мок "${folderName}" из ${mockDir} пропущен: такой мок уже есть в ${mockDirByFolder[folderName]}`);
+            return;
+        }
+
+        mockDirByFolder[folderName] = mockDir;
+        mockPathByFolder[folderName] = mockPath;
+        folders.push(folderName);
+    };
+
     readdirSync(dir, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-        .forEach((folderName) => {
-            if (mockDirByFolder[folderName]) {
-                console.warn(`Мок "${folderName}" из ${dir} пропущен: такой мок уже есть в ${mockDirByFolder[folderName]}`);
+        .forEach((entry) => {
+            // Подпапки-моки: <mockDir>/<folder>/handlers.js
+            if (entry.isDirectory()) {
+                addMockFolder(entry.name, pathToFileURL(resolve(dir, entry.name, 'handlers.js')).href, dir);
                 return;
             }
-            mockDirByFolder[folderName] = dir;
-            folders.push(folderName);
+
+            // Одиночные js-файлы-моки: <mockDir>/<folder>.js
+            if (entry.isFile() && entry.name.endsWith('.js')) {
+                addMockFolder(entry.name.replace(/\.js$/, ''), pathToFileURL(resolve(dir, entry.name)).href, dir);
+            }
         });
 });
 
@@ -93,14 +110,32 @@ app.use((req, res, next) => {
     next();
 });
 
-// Загружаем handlers.js из каждой папки и монтируем под префиксом /<folder>.
+// Загружаем модуль каждого мока (handlers.js подпапки или одиночный js-файл)
+// и монтируем под префиксом /<folder>.
 // Express обрезает префикс из req.url перед передачей в middleware,
 // поэтому хендлеры вида http.post("/rpc/v1") работают без изменений.
 const folderRoutes = {};
+const activeFolders = [];
 
 for (const folder of folders) {
-    const handlersPath = pathToFileURL(resolve(mockDirByFolder[folder], folder, 'handlers.js')).href;
-    const { handlers } = await import(handlersPath);
+    const handlersPath = mockPathByFolder[folder];
+
+    let handlersModule;
+    try {
+        handlersModule = await import(handlersPath);
+    } catch (err) {
+        console.warn(`Мок "${folder}" пропущен: не удалось загрузить ${handlersPath}${err.message ? ` (${err.message})` : ''}`);
+        continue;
+    }
+
+    const { handlers } = handlersModule;
+
+    if (!Array.isArray(handlers)) {
+        console.warn(`Мок "${folder}" пропущен: экспорт handlers не является массивом`);
+        continue;
+    }
+
+    activeFolders.push(folder);
 
     // Собираем реальные пути из MSW-хендлеров для вывода при старте.
     // Set схлопывает дубликаты маршрутов: переопределяющий хендлер (в начале
@@ -116,13 +151,13 @@ for (const folder of folders) {
 
 // Health-endpoint: список всех подключённых папок моков
 app.get('/__mock-folders', (_req, res) => {
-    res.json({ folders });
+    res.json({ folders: activeFolders });
 });
 
 const server = app.listen(PORT, () => {
     console.log(`Mock-сервер запущен на http://localhost:${PORT}`);
     console.log('Доступные моки:\n');
-    folders.forEach((folder) => {
+    activeFolders.forEach((folder) => {
         const routes = folderRoutes[folder] ?? [];
         if (routes.length === 0) {
             console.log(`  /${folder}  (хендлеры не найдены)`);

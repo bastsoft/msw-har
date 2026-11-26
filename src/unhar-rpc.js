@@ -73,7 +73,7 @@ const getValueByPath = (obj, dotPath) => {
  *   { name: "auth", type: "rpcMethodTrigger", rpcMethod: "auth", value: true, initial: false }
  *
  * @param {object} config
- * @returns {Array<{name: string, type: string, path?: string, rpcMethod?: string, value: *, initial: *}>}
+ * @returns {Array<{name: string, type: string, path?: string, rpcMethod?: string, value: *, initial: *, defaultValue: *, nullCheckMethods: Array|null}>}
  */
 const normalizeStates = (config) => {
     if (!Array.isArray(config.state)) {
@@ -87,6 +87,7 @@ const normalizeStates = (config) => {
         rpcMethod: stateConfig.rpcMethod,
         value: stateConfig.value ?? true,
         initial: stateConfig.initial ?? false,
+        defaultValue: stateConfig.defaultValue ?? null,
         nullCheckMethods: stateConfig.nullCheckMethods ?? null,
     }));
 };
@@ -249,7 +250,10 @@ const main = async () => {
     const currentState = {};
     states.forEach((stateConfig) => {
         if (stateConfig.type === "path") {
-            currentState[stateConfig.name] = stateConfig.initial ? stateConfig.value : null;
+            // Если initial установлен — берём value, иначе defaultValue (или null)
+            currentState[stateConfig.name] = stateConfig.initial
+                ? stateConfig.value
+                : stateConfig.defaultValue;
         } else if (stateConfig.type === "rpcMethodTrigger") {
             currentState[stateConfig.name] = stateConfig.initial;
         }
